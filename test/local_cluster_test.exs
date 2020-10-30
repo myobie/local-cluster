@@ -24,14 +24,19 @@ defmodule LocalClusterTest do
     assert Node.ping(node3) == :pang
   end
 
+  test "provide custom name for node" do
+    assert Node.self() == :"the_manager@127.0.0.1"
+  end
+
   test "load selected applications" do
-    nodes = LocalCluster.start_nodes(:child, 1, [
-      applications: [
-        :local_cluster,
-        :ex_unit,
-        :no_real_app
-      ]
-    ])
+    nodes =
+      LocalCluster.start_nodes(:child, 1,
+        applications: [
+          :local_cluster,
+          :ex_unit,
+          :no_real_app
+        ]
+      )
 
     [node1] = nodes
 
@@ -42,17 +47,18 @@ defmodule LocalClusterTest do
 
     assert :local_cluster in node1_apps
     assert :ex_unit in node1_apps
-    assert (:no_real_app in node1_apps) == false
+    assert :no_real_app in node1_apps == false
 
     :ok = LocalCluster.stop_nodes(nodes)
   end
 
   test "spawns tasks directly on child nodes" do
-    nodes = LocalCluster.start_nodes(:spawn, 3, [
-      files: [
-        __ENV__.file
-      ]
-    ])
+    nodes =
+      LocalCluster.start_nodes(:spawn, 3,
+        files: [
+          __ENV__.file
+        ]
+      )
 
     [node1, node2, node3] = nodes
 
@@ -79,18 +85,41 @@ defmodule LocalClusterTest do
     assert_receive :from_node_3
   end
 
-  test "overriding environment variables on child nodes" do
-    [node1] = LocalCluster.start_nodes(:cluster_var_a, 1, [
-      environment: [
-        local_cluster: [override: "test1"]
-      ]
-    ])
+  @tag :focus
+  test "provide custom names for child nodes" do
+    [node1, node2, node3] =
+      LocalCluster.start_nodes(
+        3,
+        # NOTE: a is 97, b is 98, …
+        &:"node-#{<<&1 + 96>>}",
+        files: [__ENV__.file]
+      )
 
-    [node2] = LocalCluster.start_nodes(:cluster_var_b, 1, [
-      environment: [
-        local_cluster: [override: "test2"]
-      ]
-    ])
+    caller = self()
+
+    Node.spawn(node1, fn -> send(caller, Node.self()) end)
+    Node.spawn(node2, fn -> send(caller, Node.self()) end)
+    Node.spawn(node3, fn -> send(caller, Node.self()) end)
+
+    assert_receive :"node-a@127.0.0.1"
+    assert_receive :"node-b@127.0.0.1"
+    assert_receive :"node-c@127.0.0.1"
+  end
+
+  test "overriding environment variables on child nodes" do
+    [node1] =
+      LocalCluster.start_nodes(:cluster_var_a, 1,
+        environment: [
+          local_cluster: [override: "test1"]
+        ]
+      )
+
+    [node2] =
+      LocalCluster.start_nodes(:cluster_var_b, 1,
+        environment: [
+          local_cluster: [override: "test2"]
+        ]
+      )
 
     [node3] = LocalCluster.start_nodes(:cluster_no_env, 1)
 
@@ -102,4 +131,6 @@ defmodule LocalClusterTest do
     assert node2_env == "test2"
     assert node3_env == Application.get_env(:local_cluster, :override)
   end
+
+  test "override erl flag options on child nodes"
 end
